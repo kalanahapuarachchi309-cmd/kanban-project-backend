@@ -15,4 +15,6 @@ public interface WorkItemRepository extends JpaRepository<WorkItem, Long>, JpaSp
     List<WorkItem> findByDueAtBeforeAndDueNotifiedFalseAndStatusNotInAndAssignedToIsNotNull(
             LocalDateTime now,
             java.util.Collection<WorkItemStatus> excludedStatuses);
+
+    boolean existsByCreatedByIdOrAssignedToId(Long createdById, Long assignedToId);
 }

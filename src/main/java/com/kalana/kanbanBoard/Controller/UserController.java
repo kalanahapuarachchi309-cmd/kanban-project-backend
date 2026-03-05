@@ -1,12 +1,14 @@
 package com.kalana.kanbanBoard.Controller;
 
 import com.kalana.kanbanBoard.dto.CreateUserRequest;
+import com.kalana.kanbanBoard.dto.CreateUserByAdminResponse;
 import com.kalana.kanbanBoard.dto.UserDto;
 import com.kalana.kanbanBoard.service.UserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -24,6 +26,7 @@ public class UserController {
     }
 
     @GetMapping
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<List<UserDto>> getAllUsers() {
         return ResponseEntity.ok(userService.getAllUsers());
     }
@@ -34,22 +37,47 @@ public class UserController {
     }
 
     @PostMapping
-    public ResponseEntity<UserDto> createUser(@Valid @RequestBody CreateUserRequest request) {
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<CreateUserByAdminResponse> createUser(@Valid @RequestBody CreateUserRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(userService.createUserByAdmin(request));
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<UserDto> getUser(@PathVariable Long id) {
         return ResponseEntity.ok(userService.getUser(id));
     }
 
     @PatchMapping("/{id}/deactivate")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<UserDto> deactivate(@PathVariable Long id) {
         return ResponseEntity.ok(userService.deactivateUser(id));
     }
 
     @PatchMapping("/{id}/activate")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<UserDto> activate(@PathVariable Long id) {
         return ResponseEntity.ok(userService.activateUser(id));
+    }
+
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Void> deleteUser(@PathVariable Long id) {
+        userService.deleteUserByAdmin(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{id}/resend-password-setup")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Void> resendPasswordSetup(@PathVariable Long id) {
+        userService.resendPasswordSetupEmail(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/me/resend-password-setup")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<Void> resendPasswordSetupForCurrentUser() {
+        userService.resendPasswordSetupEmailForCurrentUser();
+        return ResponseEntity.noContent().build();
     }
 }

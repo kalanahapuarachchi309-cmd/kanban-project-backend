@@ -3,6 +3,7 @@ package com.kalana.kanbanBoard.Controller;
 import com.kalana.kanbanBoard.dto.AuthResponse;
 import com.kalana.kanbanBoard.dto.ChangePasswordRequest;
 import com.kalana.kanbanBoard.dto.LoginRequest;
+import com.kalana.kanbanBoard.dto.ResendPasswordSetupRequest;
 import com.kalana.kanbanBoard.dto.SetPasswordWithTokenRequest;
 import com.kalana.kanbanBoard.service.AuthService;
 import jakarta.validation.Valid;
@@ -37,6 +38,12 @@ public class AuthController {
     @PostMapping("/password-setup")
     public ResponseEntity<Void> setPasswordWithToken(@Valid @RequestBody SetPasswordWithTokenRequest request) {
         authService.setPasswordWithToken(request);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/password-setup/resend")
+    public ResponseEntity<Void> resendPasswordSetupLink(@Valid @RequestBody ResendPasswordSetupRequest request) {
+        authService.resendPasswordSetupLink(request);
         return ResponseEntity.noContent().build();
     }
 }

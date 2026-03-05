@@ -8,4 +8,8 @@ import java.util.List;
 public interface CommentRepository extends JpaRepository<Comment, Long> {
 
     List<Comment> findAllByWorkItemIdOrderByCreatedAtAsc(Long workItemId);
+
+    boolean existsByUserId(Long userId);
+
+    void deleteAllByUserId(Long userId);
 }

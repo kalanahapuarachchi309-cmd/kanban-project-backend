@@ -38,6 +38,19 @@ public class WorkItemController {
         return ResponseEntity.ok(workItemService.getWorkItems(projectId, filter));
     }
 
+    @PostMapping("/api/projects/{projectId}/bugs")
+    public ResponseEntity<WorkItemDto> createBug(
+            @PathVariable Long projectId,
+            @Valid @RequestBody CreateBugRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(workItemService.createBug(projectId, request));
+    }
+
+    @GetMapping("/api/projects/{projectId}/bugs")
+    public ResponseEntity<List<WorkItemDto>> getBugs(@PathVariable Long projectId) {
+        return ResponseEntity.ok(workItemService.getBugs(projectId));
+    }
+
     @GetMapping("/api/work-items/{id}")
     public ResponseEntity<WorkItemDto> getWorkItem(@PathVariable Long id) {
         return ResponseEntity.ok(workItemService.getWorkItem(id));

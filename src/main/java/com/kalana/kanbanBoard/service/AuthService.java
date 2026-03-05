@@ -3,8 +3,10 @@ package com.kalana.kanbanBoard.service;
 import com.kalana.kanbanBoard.dto.AuthResponse;
 import com.kalana.kanbanBoard.dto.ChangePasswordRequest;
 import com.kalana.kanbanBoard.dto.LoginRequest;
+import com.kalana.kanbanBoard.dto.ResendPasswordSetupRequest;
 import com.kalana.kanbanBoard.dto.SetPasswordWithTokenRequest;
 import com.kalana.kanbanBoard.entity.PasswordResetToken;
+import com.kalana.kanbanBoard.entity.Role;
 import com.kalana.kanbanBoard.entity.User;
 import com.kalana.kanbanBoard.exception.BadRequestException;
 import com.kalana.kanbanBoard.repository.PasswordResetTokenRepository;
@@ -32,6 +34,7 @@ public class AuthService {
     private final JwtUtil jwtUtil;
     private final PasswordEncoder passwordEncoder;
     private final AuthUtil authUtil;
+    private final EmailService emailService;
 
     public AuthResponse login(LoginRequest request) {
         Authentication auth = authenticationManager.authenticate(
@@ -105,5 +108,31 @@ public class AuthService {
 
         token.setUsedAt(LocalDateTime.now());
         passwordResetTokenRepository.save(token);
+    }
+
+    @Transactional
+    public void resendPasswordSetupLink(ResendPasswordSetupRequest request) {
+        String identifier = request.getUsernameOrEmail().trim();
+
+        User user = identifier.contains("@")
+                ? userRepository.findByEmail(identifier)
+                        .orElseThrow(() -> new BadRequestException("User not found"))
+                : userRepository.findByUsername(identifier)
+                        .orElseThrow(() -> new BadRequestException("User not found"));
+
+        if (user.getRole() == Role.ADMIN) {
+            throw new BadRequestException("Password setup resend is not allowed for ADMIN users");
+        }
+
+        if (!user.isActive()) {
+            throw new BadRequestException("User account is deactivated");
+        }
+
+        if (!user.isMustChangePassword()) {
+            throw new BadRequestException("Password setup is already completed for this user");
+        }
+
+        String token = createPasswordSetupToken(user);
+        emailService.resendPasswordSetupEmail(user.getEmail(), user.getUsername(), token);
     }
 }

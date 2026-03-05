@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -38,13 +39,14 @@ public class WorkItemService {
         projectService.ensureProjectMembership(projectId, currentUser.getId());
         Role role = projectService.getMemberRole(projectId, currentUser.getId());
 
-        // Only QA_PM and CLIENT can create work items
-        if (role == Role.DEVELOPER) {
-            throw new AccessDeniedException("Developers cannot create work items");
-        }
-        // CLIENT can only create BUGs
-        if (role == Role.CLIENT && request.getType() != WorkItemType.BUG) {
-            throw new AccessDeniedException("Clients can only create BUG items");
+        if (request.getType() == WorkItemType.BUG) {
+            if (role != Role.QA_PM && role != Role.ADMIN) {
+                throw new AccessDeniedException("Only QA_PM or ADMIN can create BUG items");
+            }
+        } else {
+            if (role == Role.DEVELOPER || role == Role.CLIENT) {
+                throw new AccessDeniedException("Only QA_PM or ADMIN can create FEATURE items");
+            }
         }
 
         User assignedUser = null;
@@ -77,6 +79,45 @@ public class WorkItemService {
         return Mapper.toWorkItemDto(workItem);
     }
 
+    @Transactional
+    public WorkItemDto createBug(Long projectId, CreateBugRequest request) {
+        User currentUser = authUtil.getCurrentUser();
+        projectService.ensureProjectMembership(projectId, currentUser.getId());
+        Role role = projectService.getMemberRole(projectId, currentUser.getId());
+
+        if (role != Role.QA_PM && role != Role.ADMIN) {
+            throw new AccessDeniedException("Only QA_PM or ADMIN can create bugs");
+        }
+
+        User assignedUser = null;
+        if (request.getAssignedTo() != null) {
+            assignedUser = userRepository.findById(request.getAssignedTo())
+                    .orElseThrow(() -> new ResourceNotFoundException("User not found: " + request.getAssignedTo()));
+        }
+
+        Project project = projectService.getProjectOrThrow(projectId);
+
+        WorkItem workItem = WorkItem.builder()
+                .project(project)
+                .type(WorkItemType.BUG)
+                .title(request.getTitle())
+                .description(request.getDescription())
+                .priority(request.getPriority())
+                .status(WorkItemStatus.BUG_LIST)
+                .createdBy(currentUser)
+                .assignedTo(assignedUser)
+                .dueAt(request.getDueAt())
+                .build();
+
+        workItem = workItemRepository.save(workItem);
+
+        if (assignedUser != null) {
+            notifyAssignment(workItem, assignedUser);
+        }
+
+        return Mapper.toWorkItemDto(workItem);
+    }
+
     // ─────────────────────────── LIST / GET ───────────────────────────
 
     public List<WorkItemDto> getWorkItems(Long projectId, WorkItemFilterRequest filter) {
@@ -87,14 +128,32 @@ public class WorkItemService {
         Specification<WorkItem> spec = WorkItemSpecification.withFilter(projectId, filter);
         List<WorkItem> items = workItemRepository.findAll(spec);
 
-        // CLIENT sees only their project items, non-published items are hidden
+        // CLIENT sees only non-bug published items they can review
         if (role == Role.CLIENT) {
             items = items.stream()
-                    .filter(wi -> wi.getStatus() == WorkItemStatus.PUBLISHED
-                            || wi.getCreatedBy().getId().equals(currentUser.getId()))
+                    .filter(wi -> wi.getType() != WorkItemType.BUG)
+                    .filter(wi -> wi.getStatus() == WorkItemStatus.PUBLISHED)
                     .collect(Collectors.toList());
         }
 
+        return items.stream().map(Mapper::toWorkItemDto).collect(Collectors.toList());
+    }
+
+    public List<WorkItemDto> getBugs(Long projectId) {
+        User currentUser = authUtil.getCurrentUser();
+        projectService.ensureProjectMembership(projectId, currentUser.getId());
+        Role role = projectService.getMemberRole(projectId, currentUser.getId());
+
+        if (role == Role.CLIENT) {
+            throw new AccessDeniedException("CLIENT role cannot view bug list");
+        }
+
+        WorkItemFilterRequest filter = new WorkItemFilterRequest();
+        filter.setType(WorkItemType.BUG);
+        filter.setSortBy("newest");
+
+        List<WorkItem> items = new ArrayList<>(
+                workItemRepository.findAll(WorkItemSpecification.withFilter(projectId, filter)));
         return items.stream().map(Mapper::toWorkItemDto).collect(Collectors.toList());
     }
 
@@ -233,11 +292,14 @@ public class WorkItemService {
 
     private void validateStatusTransition(WorkItemStatus from, WorkItemStatus to, Role role) {
         boolean valid = switch (from) {
-            case BUG_LIST -> to == WorkItemStatus.IN_PROGRESS && role == Role.DEVELOPER;
+            case BUG_LIST -> to == WorkItemStatus.IN_PROGRESS
+                    && (role == Role.DEVELOPER || role == Role.QA_PM || role == Role.ADMIN);
             case IN_PROGRESS -> to == WorkItemStatus.QA_FIX && role == Role.DEVELOPER;
-            case QA_FIX -> (to == WorkItemStatus.DONE || to == WorkItemStatus.BUG_LIST)
+            case QA_FIX ->
+                (to == WorkItemStatus.DONE || to == WorkItemStatus.BUG_LIST || to == WorkItemStatus.IN_PROGRESS)
+                        && (role == Role.QA_PM || role == Role.ADMIN);
+            case DONE -> (to == WorkItemStatus.PUBLISHED || to == WorkItemStatus.IN_PROGRESS)
                     && (role == Role.QA_PM || role == Role.ADMIN);
-            case DONE -> to == WorkItemStatus.PUBLISHED && (role == Role.QA_PM || role == Role.ADMIN);
             case PUBLISHED -> (to == WorkItemStatus.ACCEPTED || to == WorkItemStatus.BUG_LIST)
                     && role == Role.CLIENT;
             default -> false;

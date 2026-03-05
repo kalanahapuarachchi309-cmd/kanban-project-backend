@@ -14,7 +14,6 @@ public class CreateUserRequest {
     @NotBlank
     private String email;
 
-    @NotBlank
     private String temporaryPassword;
 
     @NotNull
