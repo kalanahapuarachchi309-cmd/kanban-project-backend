@@ -89,6 +89,58 @@ public class WorkItemController {
         return ResponseEntity.ok(workItemService.clientReview(id, request));
     }
 
+    @DeleteMapping("/api/work-items/{id}")
+    public ResponseEntity<Void> deleteWorkItem(@PathVariable Long id) {
+        workItemService.deleteWorkItem(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/api/work_items/{id}")
+    public ResponseEntity<Void> deleteWorkItemSnakeCase(@PathVariable Long id) {
+        workItemService.deleteWorkItem(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/api/work-items/delete/{id}")
+    public ResponseEntity<Void> deleteWorkItemLegacyPath(@PathVariable Long id) {
+        workItemService.deleteWorkItem(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/api/work_items/delete/{id}")
+    public ResponseEntity<Void> deleteWorkItemSnakeCaseLegacyPath(@PathVariable Long id) {
+        workItemService.deleteWorkItem(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/api/work-items/delete/{id}")
+    public ResponseEntity<Void> deleteWorkItemLegacyPost(@PathVariable Long id) {
+        workItemService.deleteWorkItem(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/api/work_items/delete/{id}")
+    public ResponseEntity<Void> deleteWorkItemSnakeCaseLegacyPost(@PathVariable Long id) {
+        workItemService.deleteWorkItem(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/api/projects/{projectId}/work-items/{id}")
+    public ResponseEntity<Void> deleteWorkItemProjectScoped(
+            @PathVariable Long projectId,
+            @PathVariable Long id) {
+        workItemService.deleteWorkItem(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/api/projects/{projectId}/work_items/{id}")
+    public ResponseEntity<Void> deleteWorkItemProjectScopedSnakeCase(
+            @PathVariable Long projectId,
+            @PathVariable Long id) {
+        workItemService.deleteWorkItem(id);
+        return ResponseEntity.noContent().build();
+    }
+
     // ────── Attachments ──────
 
     @PostMapping(value = "/api/work-items/{id}/attachments/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)

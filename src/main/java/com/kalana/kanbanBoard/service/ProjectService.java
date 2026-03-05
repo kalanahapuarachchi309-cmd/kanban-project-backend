@@ -56,6 +56,13 @@ public class ProjectService {
 
     public List<ProjectDto> getMyProjects() {
         User currentUser = authUtil.getCurrentUser();
+
+        if (currentUser.getRole() == Role.QA_PM || currentUser.getRole() == Role.ADMIN) {
+            return projectRepository.findAll().stream()
+                    .map(Mapper::toProjectDto)
+                    .collect(Collectors.toList());
+        }
+
         return projectRepository.findAllByMemberId(currentUser.getId()).stream()
                 .map(Mapper::toProjectDto)
                 .collect(Collectors.toList());
@@ -98,6 +105,13 @@ public class ProjectService {
     }
 
     public void ensureProjectMembership(Long projectId, Long userId) {
+        User currentUser = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
+
+        if (currentUser.getRole() == Role.QA_PM || currentUser.getRole() == Role.ADMIN) {
+            return;
+        }
+
         if (!projectMemberRepository.existsByProjectIdAndUserId(projectId, userId)) {
             throw new AccessDeniedException("You are not a member of this project");
         }
@@ -106,7 +120,14 @@ public class ProjectService {
     public Role getMemberRole(Long projectId, Long userId) {
         return projectMemberRepository.findByProjectIdAndUserId(projectId, userId)
                 .map(ProjectMember::getRole)
-                .orElseThrow(() -> new AccessDeniedException("You are not a member of this project"));
+                .orElseGet(() -> {
+                    User currentUser = userRepository.findById(userId)
+                            .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
+                    if (currentUser.getRole() == Role.QA_PM || currentUser.getRole() == Role.ADMIN) {
+                        return currentUser.getRole();
+                    }
+                    throw new AccessDeniedException("You are not a member of this project");
+                });
     }
 
     private void ensureAdminRole(Long projectId, Long userId) {

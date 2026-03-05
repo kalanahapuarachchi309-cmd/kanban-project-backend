@@ -31,6 +31,12 @@ public class UserController {
         return ResponseEntity.ok(userService.getAllUsers());
     }
 
+    @GetMapping("/developers")
+    @PreAuthorize("hasAnyRole('ADMIN','QA_PM')")
+    public ResponseEntity<List<UserDto>> getActiveDevelopers() {
+        return ResponseEntity.ok(userService.getActiveDevelopers());
+    }
+
     @PostMapping("/register")
     public ResponseEntity<UserDto> register(@Valid @RequestBody CreateUserRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(userService.registerUser(request));
@@ -42,32 +48,32 @@ public class UserController {
         return ResponseEntity.status(HttpStatus.CREATED).body(userService.createUserByAdmin(request));
     }
 
-    @GetMapping("/{id}")
+    @GetMapping("/{id:\\d+}")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<UserDto> getUser(@PathVariable Long id) {
         return ResponseEntity.ok(userService.getUser(id));
     }
 
-    @PatchMapping("/{id}/deactivate")
+    @PatchMapping("/{id:\\d+}/deactivate")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<UserDto> deactivate(@PathVariable Long id) {
         return ResponseEntity.ok(userService.deactivateUser(id));
     }
 
-    @PatchMapping("/{id}/activate")
+    @PatchMapping("/{id:\\d+}/activate")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<UserDto> activate(@PathVariable Long id) {
         return ResponseEntity.ok(userService.activateUser(id));
     }
 
-    @DeleteMapping("/{id}")
+    @DeleteMapping("/{id:\\d+}")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> deleteUser(@PathVariable Long id) {
         userService.deleteUserByAdmin(id);
         return ResponseEntity.noContent().build();
     }
 
-    @PostMapping("/{id}/resend-password-setup")
+    @PostMapping("/{id:\\d+}/resend-password-setup")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> resendPasswordSetup(@PathVariable Long id) {
         userService.resendPasswordSetupEmail(id);

@@ -164,6 +164,19 @@ public class WorkItemService {
         return Mapper.toWorkItemDto(workItem);
     }
 
+    @Transactional
+    public void deleteWorkItem(Long workItemId) {
+        WorkItem workItem = getWorkItemOrThrow(workItemId);
+        User currentUser = authUtil.getCurrentUser();
+        Role role = projectService.getMemberRole(workItem.getProject().getId(), currentUser.getId());
+
+        if (role != Role.QA_PM && role != Role.ADMIN) {
+            throw new AccessDeniedException("Only QA_PM or ADMIN can delete work items");
+        }
+
+        workItemRepository.delete(workItem);
+    }
+
     // ─────────────────────────── UPDATE ───────────────────────────
 
     @Transactional
@@ -219,6 +232,22 @@ public class WorkItemService {
         User currentUser = authUtil.getCurrentUser();
         Long projectId = workItem.getProject().getId();
         Role role = projectService.getMemberRole(projectId, currentUser.getId());
+
+        if (workItem.getStatus() == WorkItemStatus.IN_PROGRESS
+                && request.getStatus() == WorkItemStatus.DONE
+                && (role == Role.QA_PM || role == Role.ADMIN)) {
+            workItem.setStatus(WorkItemStatus.DONE);
+
+            if (workItem.getAssignedTo() != null) {
+                notificationService.sendNotification(
+                        workItem.getAssignedTo(),
+                        NotificationType.STATUS_CHANGED,
+                        "Status changed: " + workItem.getTitle(),
+                        "Status updated to " + request.getStatus());
+            }
+
+            return Mapper.toWorkItemDto(workItemRepository.save(workItem));
+        }
 
         validateStatusTransition(workItem.getStatus(), request.getStatus(), role);
 
@@ -294,7 +323,9 @@ public class WorkItemService {
         boolean valid = switch (from) {
             case BUG_LIST -> to == WorkItemStatus.IN_PROGRESS
                     && (role == Role.DEVELOPER || role == Role.QA_PM || role == Role.ADMIN);
-            case IN_PROGRESS -> to == WorkItemStatus.QA_FIX && role == Role.DEVELOPER;
+            case IN_PROGRESS ->
+                (to == WorkItemStatus.QA_FIX && role == Role.DEVELOPER)
+                        || (to == WorkItemStatus.DONE && (role == Role.QA_PM || role == Role.ADMIN));
             case QA_FIX ->
                 (to == WorkItemStatus.DONE || to == WorkItemStatus.BUG_LIST || to == WorkItemStatus.IN_PROGRESS)
                         && (role == Role.QA_PM || role == Role.ADMIN);

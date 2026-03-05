@@ -3,6 +3,7 @@ package com.kalana.kanbanBoard.service;
 import com.kalana.kanbanBoard.dto.CreateUserRequest;
 import com.kalana.kanbanBoard.dto.CreateUserByAdminResponse;
 import com.kalana.kanbanBoard.dto.UserDto;
+import com.kalana.kanbanBoard.entity.Role;
 import com.kalana.kanbanBoard.entity.User;
 import com.kalana.kanbanBoard.exception.BadRequestException;
 import com.kalana.kanbanBoard.exception.ConflictException;
@@ -203,6 +204,14 @@ public class UserService {
 
     public List<UserDto> getAllUsers() {
         return userRepository.findAll().stream()
+                .map(Mapper::toUserDto)
+                .collect(Collectors.toList());
+    }
+
+    public List<UserDto> getActiveDevelopers() {
+        return userRepository.findAll().stream()
+                .filter(User::isActive)
+                .filter(user -> user.getRole() == Role.DEVELOPER)
                 .map(Mapper::toUserDto)
                 .collect(Collectors.toList());
     }
