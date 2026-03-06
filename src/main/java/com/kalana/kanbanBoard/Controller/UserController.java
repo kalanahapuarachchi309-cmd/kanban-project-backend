@@ -2,6 +2,7 @@ package com.kalana.kanbanBoard.Controller;
 
 import com.kalana.kanbanBoard.dto.CreateUserRequest;
 import com.kalana.kanbanBoard.dto.CreateUserByAdminResponse;
+import com.kalana.kanbanBoard.dto.AdminResetPasswordResponse;
 import com.kalana.kanbanBoard.dto.UserDto;
 import com.kalana.kanbanBoard.service.UserService;
 import jakarta.validation.Valid;
@@ -78,6 +79,12 @@ public class UserController {
     public ResponseEntity<Void> resendPasswordSetup(@PathVariable Long id) {
         userService.resendPasswordSetupEmail(id);
         return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{id:\\d+}/reset-temporary-password")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<AdminResetPasswordResponse> resetTemporaryPassword(@PathVariable Long id) {
+        return ResponseEntity.ok(userService.resetTemporaryPasswordByAdmin(id));
     }
 
     @PostMapping("/me/resend-password-setup")

@@ -1,6 +1,7 @@
 package com.kalana.kanbanBoard.service;
 
 import com.kalana.kanbanBoard.dto.AddMemberRequest;
+import com.kalana.kanbanBoard.dto.AddMembersRequest;
 import com.kalana.kanbanBoard.dto.CreateProjectRequest;
 import com.kalana.kanbanBoard.dto.ProjectDto;
 import com.kalana.kanbanBoard.dto.ProjectMemberDto;
@@ -21,6 +22,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -73,8 +75,11 @@ public class ProjectService {
         User currentUser = authUtil.getCurrentUser();
         Project project = getProjectOrThrow(projectId);
 
-        // Only ADMIN can add members
-        ensureAdminRole(projectId, currentUser.getId());
+        // ADMIN can add any role, QA_PM can add only developers
+        Role managerRole = ensureProjectManagerRole(projectId, currentUser.getId());
+        if (managerRole == Role.QA_PM && request.getRole() != Role.DEVELOPER) {
+            throw new AccessDeniedException("QA_PM can add only DEVELOPER members to a project");
+        }
 
         if (projectMemberRepository.existsByProjectIdAndUserId(projectId, request.getUserId())) {
             throw new ConflictException("User is already a member of this project");
@@ -90,6 +95,44 @@ public class ProjectService {
                 .build();
 
         return Mapper.toProjectMemberDto(projectMemberRepository.save(member));
+    }
+
+    @Transactional
+    public List<ProjectMemberDto> addMembers(Long projectId, AddMembersRequest request) {
+        User currentUser = authUtil.getCurrentUser();
+        Project project = getProjectOrThrow(projectId);
+
+        // ADMIN can add any role, QA_PM can add only developers
+        Role managerRole = ensureProjectManagerRole(projectId, currentUser.getId());
+        if (managerRole == Role.QA_PM && request.getRole() != Role.DEVELOPER) {
+            throw new AccessDeniedException("QA_PM can add only DEVELOPER members to a project");
+        }
+
+        Set<Long> uniqueUserIds = request.getUserIds().stream()
+                .filter(id -> id != null)
+                .collect(Collectors.toSet());
+
+        List<ProjectMember> createdMembers = uniqueUserIds.stream()
+                .filter(userId -> !projectMemberRepository.existsByProjectIdAndUserId(projectId, userId))
+                .map(userId -> {
+                    User targetUser = userRepository.findById(userId)
+                            .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
+
+                    return ProjectMember.builder()
+                            .project(project)
+                            .user(targetUser)
+                            .role(request.getRole())
+                            .build();
+                })
+                .collect(Collectors.toList());
+
+        if (createdMembers.isEmpty()) {
+            return List.of();
+        }
+
+        return projectMemberRepository.saveAll(createdMembers).stream()
+                .map(Mapper::toProjectMemberDto)
+                .collect(Collectors.toList());
     }
 
     public List<ProjectMemberDto> getMembers(Long projectId) {
@@ -130,10 +173,11 @@ public class ProjectService {
                 });
     }
 
-    private void ensureAdminRole(Long projectId, Long userId) {
+    private Role ensureProjectManagerRole(Long projectId, Long userId) {
         Role role = getMemberRole(projectId, userId);
-        if (role != Role.ADMIN) {
-            throw new AccessDeniedException("Only ADMIN can perform this action");
+        if (role != Role.ADMIN && role != Role.QA_PM) {
+            throw new AccessDeniedException("Only ADMIN or QA_PM can perform this action");
         }
+        return role;
     }
 }

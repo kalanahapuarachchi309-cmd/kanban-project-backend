@@ -12,6 +12,10 @@ public interface WorkItemRepository extends JpaRepository<WorkItem, Long>, JpaSp
 
     List<WorkItem> findAllByProjectId(Long projectId);
 
+    List<WorkItem> findAllByAssignedToId(Long userId);
+
+    List<WorkItem> findAllByAssignedToIdAndProjectId(Long userId, Long projectId);
+
     List<WorkItem> findByDueAtBeforeAndDueNotifiedFalseAndStatusNotInAndAssignedToIsNotNull(
             LocalDateTime now,
             java.util.Collection<WorkItemStatus> excludedStatuses);

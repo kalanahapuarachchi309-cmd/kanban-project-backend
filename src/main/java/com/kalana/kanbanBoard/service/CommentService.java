@@ -4,16 +4,21 @@ import com.kalana.kanbanBoard.dto.AddCommentRequest;
 import com.kalana.kanbanBoard.dto.CommentDto;
 import com.kalana.kanbanBoard.entity.Comment;
 import com.kalana.kanbanBoard.entity.NotificationType;
+import com.kalana.kanbanBoard.entity.ProjectMember;
+import com.kalana.kanbanBoard.entity.Role;
 import com.kalana.kanbanBoard.entity.WorkItem;
 import com.kalana.kanbanBoard.entity.User;
 import com.kalana.kanbanBoard.repository.CommentRepository;
+import com.kalana.kanbanBoard.repository.ProjectMemberRepository;
 import com.kalana.kanbanBoard.util.AuthUtil;
 import com.kalana.kanbanBoard.util.Mapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -23,6 +28,7 @@ public class CommentService {
     private final CommentRepository commentRepository;
     private final WorkItemService workItemService;
     private final ProjectService projectService;
+    private final ProjectMemberRepository projectMemberRepository;
     private final NotificationService notificationService;
     private final AuthUtil authUtil;
 
@@ -48,6 +54,32 @@ public class CommentService {
                     NotificationType.COMMENT_ADDED,
                     "New comment on: " + workItem.getTitle(),
                     currentUser.getUsername() + " commented: " + request.getMessage());
+        }
+
+        List<ProjectMember> qaPmMembers = projectMemberRepository.findAllByProjectIdAndRole(
+                workItem.getProject().getId(),
+                Role.QA_PM);
+        Set<Long> notified = new HashSet<>();
+
+        for (ProjectMember member : qaPmMembers) {
+            User recipient = member.getUser();
+            if (recipient == null || recipient.getId() == null) {
+                continue;
+            }
+            if (recipient.getId().equals(currentUser.getId())) {
+                continue;
+            }
+            if (workItem.getAssignedTo() != null && recipient.getId().equals(workItem.getAssignedTo().getId())) {
+                continue;
+            }
+            if (!notified.add(recipient.getId())) {
+                continue;
+            }
+            notificationService.sendNotification(
+                    recipient,
+                    NotificationType.COMMENT_ADDED,
+                    "New comment on: " + workItem.getTitle(),
+                    currentUser.getUsername() + " commented on " + workItem.getTitle());
         }
 
         return Mapper.toCommentDto(comment);

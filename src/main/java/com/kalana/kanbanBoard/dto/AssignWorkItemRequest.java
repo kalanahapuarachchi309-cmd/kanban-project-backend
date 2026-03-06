@@ -1,5 +1,6 @@
 package com.kalana.kanbanBoard.dto;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
@@ -7,5 +8,6 @@ import lombok.Data;
 public class AssignWorkItemRequest {
 
     @NotNull
-    private Long userId;
+    @JsonAlias("userId")
+    private Long developerId;
 }

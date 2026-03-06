@@ -2,6 +2,7 @@ package com.kalana.kanbanBoard.service;
 
 import com.kalana.kanbanBoard.dto.CreateUserRequest;
 import com.kalana.kanbanBoard.dto.CreateUserByAdminResponse;
+import com.kalana.kanbanBoard.dto.AdminResetPasswordResponse;
 import com.kalana.kanbanBoard.dto.UserDto;
 import com.kalana.kanbanBoard.entity.Role;
 import com.kalana.kanbanBoard.entity.User;
@@ -94,7 +95,14 @@ public class UserService {
             throw new ConflictException("Email already exists: " + request.getEmail());
         }
 
-        String generatedInitialPassword = UUID.randomUUID().toString();
+        String generatedInitialPassword = (request.getTemporaryPassword() != null
+                && !request.getTemporaryPassword().isBlank())
+                        ? request.getTemporaryPassword()
+                        : UUID.randomUUID().toString();
+
+        if (generatedInitialPassword.length() < 6) {
+            throw new BadRequestException("Temporary password must be at least 6 characters");
+        }
 
         User user = User.builder()
                 .username(request.getUsername())
@@ -131,6 +139,35 @@ public class UserService {
         return CreateUserByAdminResponse.builder()
                 .user(Mapper.toUserDto(user))
                 .emailWarning(emailWarning)
+                .temporaryPassword(generatedInitialPassword)
+                .build();
+    }
+
+    @Transactional
+    public AdminResetPasswordResponse resetTemporaryPasswordByAdmin(Long userId) {
+        User currentUser = authUtil.getCurrentUser();
+        if (currentUser.getRole() != com.kalana.kanbanBoard.entity.Role.ADMIN) {
+            throw new BadRequestException("Only ADMIN users can reset temporary passwords");
+        }
+
+        User targetUser = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
+
+        if (targetUser.getRole() == com.kalana.kanbanBoard.entity.Role.ADMIN) {
+            throw new BadRequestException("Temporary password reset is not allowed for ADMIN users");
+        }
+
+        String temporaryPassword = UUID.randomUUID().toString().replace("-", "")
+                .substring(0, 10) + "A1";
+
+        targetUser.setPasswordHash(passwordEncoder.encode(temporaryPassword));
+        targetUser.setMustChangePassword(true);
+        userRepository.save(targetUser);
+
+        return AdminResetPasswordResponse.builder()
+                .userId(targetUser.getId())
+                .username(targetUser.getUsername())
+                .temporaryPassword(temporaryPassword)
                 .build();
     }
 

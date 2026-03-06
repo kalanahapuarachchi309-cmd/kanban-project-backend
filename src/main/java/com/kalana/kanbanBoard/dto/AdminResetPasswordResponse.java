@@ -9,8 +9,8 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class CreateUserByAdminResponse {
-    private UserDto user;
-    private String emailWarning;
+public class AdminResetPasswordResponse {
+    private Long userId;
+    private String username;
     private String temporaryPassword;
 }

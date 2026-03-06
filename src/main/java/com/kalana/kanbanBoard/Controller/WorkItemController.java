@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -51,6 +52,13 @@ public class WorkItemController {
         return ResponseEntity.ok(workItemService.getBugs(projectId));
     }
 
+    @PreAuthorize("hasRole('DEVELOPER')")
+    @GetMapping("/api/work-items/my")
+    public ResponseEntity<List<WorkItemDto>> getMyAssignedItems(
+            @RequestParam(required = false) Long projectId) {
+        return ResponseEntity.ok(workItemService.getMyAssignedItems(projectId));
+    }
+
     @GetMapping("/api/work-items/{id}")
     public ResponseEntity<WorkItemDto> getWorkItem(@PathVariable Long id) {
         return ResponseEntity.ok(workItemService.getWorkItem(id));
@@ -63,6 +71,7 @@ public class WorkItemController {
         return ResponseEntity.ok(workItemService.updateWorkItem(id, request));
     }
 
+    @PreAuthorize("hasAnyRole('QA_PM','ADMIN')")
     @PatchMapping("/api/work-items/{id}/assign")
     public ResponseEntity<WorkItemDto> assignWorkItem(
             @PathVariable Long id,

@@ -14,9 +14,10 @@ import com.kalana.kanbanBoard.repository.UserRepository;
 import com.kalana.kanbanBoard.util.AuthUtil;
 import com.kalana.kanbanBoard.util.JwtUtil;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,6 +27,7 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class AuthService {
 
     private final AuthenticationManager authenticationManager;
@@ -37,15 +39,40 @@ public class AuthService {
     private final EmailService emailService;
 
     public AuthResponse login(LoginRequest request) {
-        Authentication auth = authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword()));
+        String identifier = request.getUsername().trim();
 
-        User user = userRepository.findByUsername(request.getUsername())
-                .orElseThrow(() -> new BadRequestException("User not found"));
+        User user = identifier.contains("@")
+                ? userRepository.findByEmail(identifier)
+                        .orElseThrow(() -> {
+                            log.warn("Login failed: user not found for identifier={}", identifier);
+                            return new BadRequestException("Invalid username/email or password");
+                        })
+                : userRepository.findByUsername(identifier)
+                        .orElseThrow(() -> {
+                            log.warn("Login failed: user not found for identifier={}", identifier);
+                            return new BadRequestException("Invalid username/email or password");
+                        });
 
         if (!user.isActive()) {
+            log.warn("Login failed: account deactivated. username={}, role={}", user.getUsername(), user.getRole());
             throw new BadRequestException("Account is deactivated");
         }
+
+        try {
+            authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(user.getUsername(), request.getPassword()));
+        } catch (BadCredentialsException ex) {
+            log.warn("Login failed: bad credentials. username={}, role={}, mustChangePassword={}",
+                    user.getUsername(), user.getRole(), user.isMustChangePassword());
+            if (user.isMustChangePassword()) {
+                log.warn("Developer login blocked by password setup requirement. username={}", user.getUsername());
+                throw new BadRequestException(
+                        "Password setup required. Use 'Resend Password Setup Email' to create your password.");
+            }
+            throw new BadRequestException("Invalid username/email or password");
+        }
+
+        log.info("Login success. username={}, role={}", user.getUsername(), user.getRole());
 
         String token = jwtUtil.generateToken(user.getUsername());
 

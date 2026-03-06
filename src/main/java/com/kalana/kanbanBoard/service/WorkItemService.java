@@ -16,7 +16,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -40,8 +42,8 @@ public class WorkItemService {
         Role role = projectService.getMemberRole(projectId, currentUser.getId());
 
         if (request.getType() == WorkItemType.BUG) {
-            if (role != Role.QA_PM && role != Role.ADMIN) {
-                throw new AccessDeniedException("Only QA_PM or ADMIN can create BUG items");
+            if (role != Role.QA_PM && role != Role.ADMIN && role != Role.CLIENT) {
+                throw new AccessDeniedException("Only QA_PM, ADMIN or CLIENT can create BUG items");
             }
         } else {
             if (role == Role.DEVELOPER || role == Role.CLIENT) {
@@ -85,14 +87,13 @@ public class WorkItemService {
         projectService.ensureProjectMembership(projectId, currentUser.getId());
         Role role = projectService.getMemberRole(projectId, currentUser.getId());
 
-        if (role != Role.QA_PM && role != Role.ADMIN) {
-            throw new AccessDeniedException("Only QA_PM or ADMIN can create bugs");
+        if (role != Role.QA_PM && role != Role.ADMIN && role != Role.CLIENT) {
+            throw new AccessDeniedException("Only QA_PM, ADMIN or CLIENT can create bugs");
         }
 
         User assignedUser = null;
         if (request.getAssignedTo() != null) {
-            assignedUser = userRepository.findById(request.getAssignedTo())
-                    .orElseThrow(() -> new ResourceNotFoundException("User not found: " + request.getAssignedTo()));
+            assignedUser = getAssignedDeveloperFromProject(projectId, request.getAssignedTo());
         }
 
         Project project = projectService.getProjectOrThrow(projectId);
@@ -128,11 +129,11 @@ public class WorkItemService {
         Specification<WorkItem> spec = WorkItemSpecification.withFilter(projectId, filter);
         List<WorkItem> items = workItemRepository.findAll(spec);
 
-        // CLIENT sees only non-bug published items they can review
+        // CLIENT sees all project bugs plus published non-bug items.
         if (role == Role.CLIENT) {
             items = items.stream()
-                    .filter(wi -> wi.getType() != WorkItemType.BUG)
-                    .filter(wi -> wi.getStatus() == WorkItemStatus.PUBLISHED)
+                    .filter(wi -> (wi.getType() == WorkItemType.BUG)
+                            || (wi.getType() != WorkItemType.BUG && wi.getStatus() == WorkItemStatus.PUBLISHED))
                     .collect(Collectors.toList());
         }
 
@@ -144,16 +145,33 @@ public class WorkItemService {
         projectService.ensureProjectMembership(projectId, currentUser.getId());
         Role role = projectService.getMemberRole(projectId, currentUser.getId());
 
-        if (role == Role.CLIENT) {
-            throw new AccessDeniedException("CLIENT role cannot view bug list");
-        }
-
         WorkItemFilterRequest filter = new WorkItemFilterRequest();
         filter.setType(WorkItemType.BUG);
         filter.setSortBy("newest");
+        if (role == Role.DEVELOPER) {
+            // Developers should only see their own assigned bugs in bug list.
+            filter.setAssignedTo(currentUser.getId());
+        }
 
         List<WorkItem> items = new ArrayList<>(
                 workItemRepository.findAll(WorkItemSpecification.withFilter(projectId, filter)));
+        return items.stream().map(Mapper::toWorkItemDto).collect(Collectors.toList());
+    }
+
+    public List<WorkItemDto> getMyAssignedItems(Long projectId) {
+        User currentUser = authUtil.getCurrentUser();
+
+        if (currentUser.getRole() != Role.DEVELOPER) {
+            throw new AccessDeniedException("Only DEVELOPER can view assigned work items");
+        }
+
+        List<WorkItem> items;
+        if (projectId != null) {
+            items = workItemRepository.findAllByAssignedToIdAndProjectId(currentUser.getId(), projectId);
+        } else {
+            items = workItemRepository.findAllByAssignedToId(currentUser.getId());
+        }
+
         return items.stream().map(Mapper::toWorkItemDto).collect(Collectors.toList());
     }
 
@@ -213,15 +231,15 @@ public class WorkItemService {
             throw new AccessDeniedException("Only QA_PM or ADMIN can assign work items");
         }
 
-        User assignedUser = userRepository.findById(request.getUserId())
-                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + request.getUserId()));
+        Long developerId = request.getDeveloperId();
+        User assignedUser = getAssignedDeveloperFromProject(workItem.getProject().getId(), developerId);
 
         workItem.setAssignedTo(assignedUser);
-        workItem = workItemRepository.save(workItem);
+        WorkItem savedWorkItem = workItemRepository.save(workItem);
 
-        notifyAssignment(workItem, assignedUser);
+        notifyAssignment(savedWorkItem, assignedUser);
 
-        return Mapper.toWorkItemDto(workItem);
+        return Mapper.toWorkItemDto(savedWorkItem);
     }
 
     // ─────────────────────────── STATUS CHANGE ───────────────────────────
@@ -232,6 +250,7 @@ public class WorkItemService {
         User currentUser = authUtil.getCurrentUser();
         Long projectId = workItem.getProject().getId();
         Role role = projectService.getMemberRole(projectId, currentUser.getId());
+        WorkItemStatus fromStatus = workItem.getStatus();
 
         if (workItem.getStatus() == WorkItemStatus.IN_PROGRESS
                 && request.getStatus() == WorkItemStatus.DONE
@@ -246,12 +265,22 @@ public class WorkItemService {
                         "Status updated to " + request.getStatus());
             }
 
+            notifyQaPmMembersInProject(
+                    workItem,
+                    NotificationType.STATUS_CHANGED,
+                    "Status changed: " + workItem.getTitle(),
+                    "Status updated to " + request.getStatus() + " by " + currentUser.getUsername(),
+                    currentUser.getId());
+
             return Mapper.toWorkItemDto(workItemRepository.save(workItem));
         }
 
         validateStatusTransition(workItem.getStatus(), request.getStatus(), role);
 
         workItem.setStatus(request.getStatus());
+        boolean isDeveloperBugProgress = workItem.getType() == WorkItemType.BUG
+                && role == Role.DEVELOPER
+                && isDeveloperProgressTransition(fromStatus, request.getStatus());
 
         // Notify relevant parties
         if (workItem.getAssignedTo() != null) {
@@ -260,6 +289,17 @@ public class WorkItemService {
                     NotificationType.STATUS_CHANGED,
                     "Status changed: " + workItem.getTitle(),
                     "Status updated to " + request.getStatus());
+        }
+
+        if (isDeveloperBugProgress) {
+            notifyAdminAndQaPmForDeveloperBugProgress(workItem, currentUser, fromStatus, request.getStatus());
+        } else {
+            notifyQaPmMembersInProject(
+                    workItem,
+                    NotificationType.STATUS_CHANGED,
+                    "Status changed: " + workItem.getTitle(),
+                    "Status updated to " + request.getStatus() + " by " + currentUser.getUsername(),
+                    currentUser.getId());
         }
 
         return Mapper.toWorkItemDto(workItemRepository.save(workItem));
@@ -350,6 +390,14 @@ public class WorkItemService {
                 "You have been assigned to: " + workItem.getTitle() +
                         (workItem.getDueAt() != null ? " | Due: " + workItem.getDueAt() : ""));
 
+        notifyQaPmMembersInProject(
+                workItem,
+                NotificationType.ASSIGNMENT_CREATED,
+                "Work item assigned: " + workItem.getTitle(),
+                "Assigned to " + assignee.getUsername() +
+                        (workItem.getDueAt() != null ? " | Due: " + workItem.getDueAt() : ""),
+                assignee.getId());
+
         try {
             emailService.sendAssignmentEmail(
                     assignee.getEmail(),
@@ -360,5 +408,109 @@ public class WorkItemService {
                     workItem.getId());
         } catch (Exception ignored) {
         }
+    }
+
+    private void notifyQaPmMembersInProject(
+            WorkItem workItem,
+            NotificationType type,
+            String title,
+            String body,
+            Long excludedUserId) {
+        List<ProjectMember> qaPmMembers = projectMemberRepository.findAllByProjectIdAndRole(
+                workItem.getProject().getId(),
+                Role.QA_PM);
+
+        Set<Long> notified = new HashSet<>();
+        for (ProjectMember member : qaPmMembers) {
+            User recipient = member.getUser();
+            if (recipient == null || recipient.getId() == null) {
+                continue;
+            }
+            if (excludedUserId != null && excludedUserId.equals(recipient.getId())) {
+                continue;
+            }
+            if (!notified.add(recipient.getId())) {
+                continue;
+            }
+            notificationService.sendNotification(recipient, type, title, body);
+        }
+    }
+
+    private boolean isDeveloperProgressTransition(WorkItemStatus from, WorkItemStatus to) {
+        return (from == WorkItemStatus.BUG_LIST && to == WorkItemStatus.IN_PROGRESS)
+                || (from == WorkItemStatus.IN_PROGRESS && to == WorkItemStatus.QA_FIX);
+    }
+
+    private void notifyAdminAndQaPmForDeveloperBugProgress(
+            WorkItem workItem,
+            User developer,
+            WorkItemStatus from,
+            WorkItemStatus to) {
+        List<ProjectMember> qaPmMembers = projectMemberRepository.findAllByProjectIdAndRole(
+                workItem.getProject().getId(),
+                Role.QA_PM);
+        List<ProjectMember> adminMembers = projectMemberRepository.findAllByProjectIdAndRole(
+                workItem.getProject().getId(),
+                Role.ADMIN);
+
+        Set<Long> notified = new HashSet<>();
+        String title;
+        String body;
+
+        if (from == WorkItemStatus.IN_PROGRESS && to == WorkItemStatus.QA_FIX) {
+            title = "Bug ready for QA review: BUG-" + workItem.getId();
+            body = "Developer " + developer.getUsername() + " fixed BUG-" + workItem.getId()
+                    + " (" + workItem.getTitle() + "). Bug has been fixed and is ready for QA review.";
+        } else {
+            title = "Bug moved: " + workItem.getTitle();
+            body = "Developer " + developer.getUsername() + " moved bug '" + workItem.getTitle()
+                    + "' from " + from + " to " + to;
+        }
+
+        for (ProjectMember member : qaPmMembers) {
+            notifyProgressRecipient(member, developer.getId(), notified, title, body);
+        }
+        for (ProjectMember member : adminMembers) {
+            notifyProgressRecipient(member, developer.getId(), notified, title, body);
+        }
+    }
+
+    private void notifyProgressRecipient(
+            ProjectMember member,
+            Long excludedUserId,
+            Set<Long> notified,
+            String title,
+            String body) {
+        User recipient = member.getUser();
+        if (recipient == null || recipient.getId() == null) {
+            return;
+        }
+        if (excludedUserId != null && excludedUserId.equals(recipient.getId())) {
+            return;
+        }
+        if (!notified.add(recipient.getId())) {
+            return;
+        }
+        notificationService.sendNotification(recipient, NotificationType.STATUS_CHANGED, title, body);
+    }
+
+    private User getAssignedDeveloperFromProject(Long projectId, Long developerId) {
+        User assignedUser = userRepository.findById(developerId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + developerId));
+
+        if (assignedUser.getRole() != Role.DEVELOPER) {
+            throw new BadRequestException("Assigned user must have DEVELOPER role");
+        }
+
+        ProjectMember member = projectMemberRepository
+                .findByProjectIdAndUserId(projectId, developerId)
+                .orElseThrow(() -> new BadRequestException(
+                        "Developer is not assigned to this project. Admin must add the developer to the project first"));
+
+        if (member.getRole() != Role.DEVELOPER) {
+            throw new BadRequestException("Assigned user must have DEVELOPER role in this project");
+        }
+
+        return assignedUser;
     }
 }

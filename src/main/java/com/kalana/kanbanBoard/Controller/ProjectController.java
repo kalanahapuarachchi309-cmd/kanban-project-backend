@@ -1,6 +1,7 @@
 package com.kalana.kanbanBoard.Controller;
 
 import com.kalana.kanbanBoard.dto.AddMemberRequest;
+import com.kalana.kanbanBoard.dto.AddMembersRequest;
 import com.kalana.kanbanBoard.dto.CreateProjectRequest;
 import com.kalana.kanbanBoard.dto.ProjectDto;
 import com.kalana.kanbanBoard.dto.ProjectMemberDto;
@@ -34,6 +35,12 @@ public class ProjectController {
     public ResponseEntity<ProjectMemberDto> addMember(@PathVariable Long id,
             @Valid @RequestBody AddMemberRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(projectService.addMember(id, request));
+    }
+
+    @PostMapping("/{id}/members/bulk")
+    public ResponseEntity<List<ProjectMemberDto>> addMembers(@PathVariable Long id,
+            @Valid @RequestBody AddMembersRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(projectService.addMembers(id, request));
     }
 
     @GetMapping("/{id}/members")
